@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TipoTransacao {
+  FIXO
+  VARIAVEL
+  PARCELADO
+}
+
+enum FormaPagamento {
+  PIX
+  DEBITO
+  CREDITO
+  DINHEIRO
+  OUTRO
+}
+
+enum Responsavel {
+  DENNIS
+  PATRIZZIA
+  CASAL
+}
+
+model Categoria {
+  id        String  @id @default(cuid())
+  nome      String  @unique
+  descricao String  @default("")
+  icone     String  @default("🏷️")
+  cor       String  @default("#94a3b8")
+  ordem     Int     @default(0)
+  ativa     Boolean @default(true)
+
+  transacoes    Transacao[]
+  gastosFixos   GastoFixo[]
+  parcelamentos Parcelamento[]
+}
+
+/// Todo gasto é uma Transacao. Gastos fixos e parcelas geram uma
+/// ocorrência (linha) por mês de competência (anoRef/mesRef).
+model Transacao {
+  id             String         @id @default(cuid())
+  descricao      String
+  valorCentavos  Int
+  data           DateTime
+  anoRef         Int
+  mesRef         Int // 1-12
+  tipo           TipoTransacao
+  formaPagamento FormaPagamento
+  pago           Boolean        @default(false)
+  /// Ocorrência de gasto fixo pausada só neste mês (não entra nos totais)
+  pausada        Boolean        @default(false)
+  responsavel    Responsavel    @default(CASAL)
+  observacao     String?
+
+  categoria   Categoria @relation(fields: [categoriaId], references: [id])
+  categoriaId String
+
+  gastoFixo   GastoFixo? @relation(fields: [gastoFixoId], references: [id], onDelete: SetNull)
+  gastoFixoId String?
+
+  parcelamento   Parcelamento? @relation(fields: [parcelamentoId], references: [id], onDelete: Cascade)
+  parcelamentoId String?
+  parcelaNumero  Int?
+
+  criadaEm DateTime @default(now())
+
+  @@unique([gastoFixoId, anoRef, mesRef])
+  @@index([anoRef, mesRef])
+}
+
+/// Modelo (template) de despesa fixa mensal. As ocorrências mensais
+/// são geradas automaticamente como Transacao (tipo FIXO).
+model GastoFixo {
+  id             String         @id @default(cuid())
+  descricao      String
+  valorCentavos  Int
+  diaDoMes       Int            @default(1)
+  formaPagamento FormaPagamento @default(PIX)
+  responsavel    Responsavel    @default(CASAL)
+  ativo          Boolean        @default(true)
+  inicioAno      Int
+  inicioMes      Int
+
+  categoria   Categoria @relation(fields: [categoriaId], references: [id])
+  categoriaId String
+
+  ocorrencias Transacao[]
+  criadoEm    DateTime    @default(now())
+}
+
+/// Modelo (template) de receita recorrente (salários etc).
+model ReceitaRecorrente {
+  id            String      @id @default(cuid())
+  nome          String
+  valorCentavos Int
+  diaDoMes      Int         @default(1)
+  responsavel   Responsavel @default(CASAL)
+  ativo         Boolean     @default(true)
+  inicioAno     Int
+  inicioMes     Int
+
+  ocorrencias Entrada[]
+  criadaEm    DateTime  @default(now())
+}
+
+model Entrada {
+  id            String      @id @default(cuid())
+  nome          String
+  valorCentavos Int
+  data          DateTime
+  anoRef        Int
+  mesRef        Int
+  responsavel   Responsavel @default(CASAL)
+  recebida      Boolean     @default(true)
+  pausada       Boolean     @default(false)
+
+  receitaRecorrente   ReceitaRecorrente? @relation(fields: [receitaRecorrenteId], references: [id], onDelete: SetNull)
+  receitaRecorrenteId String?
+
+  criadaEm DateTime @default(now())
+
+  @@unique([receitaRecorrenteId, anoRef, mesRef])
+  @@index([anoRef, mesRef])
+}
+
+/// Compra parcelada. Ao criar, todas as parcelas futuras são geradas
+/// como Transacao (tipo PARCELADO), uma por mês.
+model Parcelamento {
+  id                   String         @id @default(cuid())
+  descricao            String
+  valorParcelaCentavos Int
+  totalParcelas        Int
+  primeiraAno          Int
+  primeiraMes          Int
+  diaVencimento        Int            @default(1)
+  formaPagamento       FormaPagamento @default(CREDITO)
+  responsavel          Responsavel    @default(CASAL)
+  observacao           String?
+
+  categoria   Categoria @relation(fields: [categoriaId], references: [id])
+  categoriaId String
+
+  parcelas Transacao[]
+  criadoEm DateTime    @default(now())
+}
+
+model Meta {
+  id                 String    @id @default(cuid())
+  nome               String
+  valorTotalCentavos Int
+  dataAlvo           DateTime?
+  arquivada          Boolean   @default(false)
+
+  planos   MetaPlanoMensal[]
+  aportes  MetaAporte[]
+  criadaEm DateTime          @default(now())
+}
+
+model MetaPlanoMensal {
+  id            String @id @default(cuid())
+  metaId        String
+  meta          Meta   @relation(fields: [metaId], references: [id], onDelete: Cascade)
+  anoRef        Int
+  mesRef        Int
+  valorCentavos Int
+
+  @@unique([metaId, anoRef, mesRef])
+}
+
+model MetaAporte {
+  id            String   @id @default(cuid())
+  metaId        String
+  meta          Meta     @relation(fields: [metaId], references: [id], onDelete: Cascade)
+  data          DateTime
+  anoRef        Int
+  mesRef        Int
+  valorCentavos Int
+}
+
+model Investimento {
+  id                    String  @id @default(cuid())
+  anoRef                Int
+  mesRef                Int
+  reservaCentavos       Int     @default(0)
+  rendaFixaCentavos     Int     @default(0)
+  rendaVariavelCentavos Int     @default(0)
+  observacao            String?
+
+  @@unique([anoRef, mesRef])
+}
